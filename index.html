@@ -601,15 +601,16 @@ function updateAndDrawFish(){
         // berenang pelan tapi lintas SELURUH kotak: arah ke titik tujuan, ganti cuma kalau sampé
         const spN=SPECIES[f.species];
         const nearParent = (f.age < spN.maturity) && f.parentId!=null && byId(f.parentId);
+        const p = nearParent ? byId(f.parentId) : null;          // induk (scope luar, dipakai 2x)
         let tx, ty;
-        if(nearParent){ const p=byId(f.parentId); tx=p.x; ty=p.y; }   // anak: ikut induk
-        else { tx=f.tx; ty=f.ty; }                                 // dewasa: tujuan jelajah
+        if(nearParent){ tx=p.x; ty=p.y; }                        // anak: ikut induk
+        else { tx=f.tx; ty=f.ty; }                              // dewasa: tujuan jelajah
         const dx=tx-f.x, dy=ty-f.y, d=Math.sqrt(dx*dx+dy*dy)||1;
-        const drift = f.spd * (0.6 + Math.random()*0.6);          // lambat, fluktuatif
+        const drift = f.spd * (0.6 + Math.random()*0.6);        // lambat, fluktuatif
         f.vx = (dx/d)*drift; f.vy = (dy/d)*drift;
         // ganti tujuan: anak kalau jauh dari induk; dewasa cuma kalau UDAH SAMPÉ (wajib lintas tank pelan²)
         if(nearParent){ if(d>16){ f.tx=p.x+(Math.random()*20-10); f.ty=p.y+(Math.random()*14-7); } }
-        else if(d < 10){                                   // sampé -> pilih titik jauh baru
+        else if(d < 10){                                         // sampé -> pilih titik jauh baru
           f.tx = 4 + Math.random()*184; f.ty = 8 + Math.random()*112;
         }
       }
@@ -794,7 +795,10 @@ document.getElementById('restart').onclick=reset;
 // boot
 initBubbles(); updateShop(); updateHUD(); updateSelInfo(); updateProfile();
 setInterval(()=>{ if(state.running && !state.gameOver) simStep(); }, cfg.tickMs);
-(function frame(){ render(); requestAnimationFrame(frame); })();
+(function frame(){
+  try{ render(); }catch(e){ console.error('render error (frame skipped):', e); }
+  requestAnimationFrame(frame);
+})();
 </script>
 </body>
 </html>
