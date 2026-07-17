@@ -117,7 +117,7 @@
       <button id="tankPrev" title="Akuarium sebelumnya" style="padding:6px 14px;font-size:16px">◀️</button>
       <span id="tankLabel" style="min-width:120px;text-align:center;font-weight:600;color:#8fd3ff">Akuarium 1 (1/1)</span>
       <button id="tankNext" title="Akuarium berikutnya" style="padding:6px 14px;font-size:16px">▶️</button>
-      <button id="tankAdd" title="Tambah akuarium baru ($200)" style="padding:6px 12px">➕ Tank</button>
+      <button id="tankAdd" title="Tambah akuarium baru ($200)" style="padding:6px 12px">➕ Tank ($200)</button>
       <button id="tankRename" title="Ganti nama akuarium" style="padding:6px 10px">✏️</button>
     </div>
     <div id="toast"></div>
@@ -707,6 +707,8 @@ function updateHUD(){
   if(state.filterLevel>=3) fb.textContent='⚙️ Filter Lv.3 (MAX)';
   else if(state.filterLevel>=1) fb.textContent='⚙️ Upgrade Filter →Lv.'+(state.filterLevel+1)+' ($100)';
   else fb.textContent='⚙️ Filter ($100)';
+  const addBtn=document.getElementById('tankAdd');
+  if(addBtn){ const full=tanks.length>=MAX_TANKS; addBtn.style.opacity=(full||state.coins<TANK_COST)?'0.5':'1'; }
 }
 function updateShop(){
   const el=document.getElementById('shop'); el.innerHTML='';
@@ -834,7 +836,12 @@ const MAX_TANKS = 8;
 function updateTankBar(){
   const t = tanks[activeTank];
   document.getElementById('tankLabel').textContent = t.name+' ('+(activeTank+1)+'/'+tanks.length+')';
-  document.getElementById('tankAdd').disabled = tanks.length>=MAX_TANKS;
+  const addBtn = document.getElementById('tankAdd');
+  const full = tanks.length>=MAX_TANKS;
+  const poor = state.coins < TANK_COST;
+  addBtn.textContent = full ? '➕ Tank (MAX)' : '➕ Tank ($'+TANK_COST+')';
+  addBtn.style.opacity = (full || poor) ? '0.5' : '1';
+  addBtn.disabled = full;   // kalau cuma koin kurang, tetap bisa diklik → toast jelasin
 }
 function refreshActiveTankUI(){
   document.getElementById('bLamp').textContent='💡 Lampu: '+(state.water.lampOn?'ON':'OFF');
@@ -847,12 +854,17 @@ function switchTank(dir){
   toast('🔄 '+tanks[activeTank].name);
 }
 function addTank(){
-  if(tanks.length>=MAX_TANKS){ flash('Maksimal '+MAX_TANKS+' akuarium'); return; }
-  if(!trySpend(TANK_COST)){ return; }
+  if(tanks.length>=MAX_TANKS){ flash('Maksimal '+MAX_TANKS+' akuarium'); toast('🚫 Maksimal '+MAX_TANKS+' akuarium'); return; }
+  if(state.coins < TANK_COST){
+    flash('Koin kurang!');
+    toast('💰 Koin kurang! Butuh $'+TANK_COST+' buat akuarium baru (punya $'+state.coins+')');
+    return;
+  }
+  state.coins -= TANK_COST;
   tanks.push(makeTank('Akuarium '+(tanks.length+1)));
   activeTank = tanks.length-1;
   refreshActiveTankUI();
-  toast('✅ '+tanks[activeTank].name+' dibuat! ($'+TANK_COST+')');
+  toast('✅ '+tanks[activeTank].name+' dibuat! (−$'+TANK_COST+')');
 }
 function renameTank(){
   const nm = window.prompt('Nama akuarium:', tanks[activeTank].name);
