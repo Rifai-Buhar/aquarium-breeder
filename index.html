@@ -191,8 +191,15 @@
       <button id="bTempU">Suhu +</button>
       <button id="bPause">⏸️ Pause</button>
     </div>
+    <div class="row" style="margin-top:6px;border-top:1px solid #22303c;padding-top:8px">
+      <button id="bSave" title="Simpan progres ke browser ini">💾 Simpan</button>
+      <button id="bExport" title="Dapatkan kode simpanan untuk pindah HP/PC">📤 Save Code</button>
+      <button id="bImport" title="Muat progres dari kode simpanan">📥 Muat Code</button>
+    </div>
+    <div id="saveInfo" style="font-size:11px;color:#7fa8c9;margin-top:4px;min-height:14px"></div>
 
   </div>
+
 </div>
 
 <script>
@@ -746,6 +753,8 @@ function reset(){
   state.stats={bred:0,earned:0,sold:0};
   document.getElementById('bLamp').textContent='💡 Lampu: ON';
   document.getElementById('overlay').style.display='none';
+  try{ localStorage.removeItem(SAVE_KEY); }catch(e){}
+  const si=document.getElementById('saveInfo'); if(si) si.textContent='';
   updateShop(); updateHUD(); updateSelInfo(); updateProfile();
 }
 cv.addEventListener('click', e=>{
@@ -792,8 +801,92 @@ window.addEventListener('keydown', e=>{
 });
 document.getElementById('restart').onclick=reset;
 
+// ---------- SAVE / LOAD (localStorage + export code) ----------
+const SAVE_KEY = 'aquariumBreederSave_v1';
+const SAVE_VERSION = 1;
+
+function serializeState(){
+  return {
+    v: SAVE_VERSION,
+    fishId: fishId,
+    coins: state.coins, day: state.day, tick: state.tick,
+    gameOver: state.gameOver,
+    water: state.water,
+    filterLevel: state.filterLevel, food: state.food,
+    fedRatio: state.fedRatio, feedLeftover: state.feedLeftover,
+    fish: state.fish, stats: state.stats,
+    savedAt: Date.now(),
+  };
+}
+
+function applyState(d){
+  if(!d || typeof d!=='object') throw new Error('data kosong');
+  if(d.v!==SAVE_VERSION) throw new Error('versi simpanan beda (v'+d.v+')');
+  fishId = d.fishId||0;
+  state.coins = d.coins; state.day = d.day; state.tick = d.tick||0;
+  state.gameOver = !!d.gameOver;
+  state.water = Object.assign({o2:90,ammonia:3,nitrate:3,ph:7,temp:26,setTemp:26,lampOn:true,light:80}, d.water||{});
+  state.filterLevel = d.filterLevel||0;
+  state.food = d.food||0; state.fedRatio = d.fedRatio||1; state.feedLeftover = d.feedLeftover||0;
+  state.fish = (d.fish||[]).map(f=>Object.assign(makeFish(f.species||'guppy', f.sex||'M', 0), f));
+  state.stats = Object.assign({bred:0,earned:0,sold:0}, d.stats||{});
+  state.foods = []; state.selected = []; state.profileId = null;
+  // sinkron UI
+  document.getElementById('bLamp').textContent = state.water.lampOn ? '💡 Lampu: ON' : '💡 Lampu: OFF';
+  document.getElementById('overlay').style.display = state.gameOver ? 'flex' : 'none';
+  updateShop(); updateHUD(); updateSelInfo(); updateProfile();
+}
+
+function saveGame(silent){
+  try{
+    localStorage.setItem(SAVE_KEY, JSON.stringify(serializeState()));
+    const t = new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+    document.getElementById('saveInfo').textContent = '✅ Tersimpan otomatis '+t;
+    if(!silent) toast('💾 Progres tersimpan');
+    return true;
+  }catch(e){ if(!silent) toast('⚠️ Gagal simpan: '+e.message); return false; }
+}
+
+function loadGame(){
+  try{
+    const raw = localStorage.getItem(SAVE_KEY);
+    if(!raw) return false;
+    applyState(JSON.parse(raw));
+    return true;
+  }catch(e){ console.error('load error:', e); return false; }
+}
+
+// Save Code = base64(JSON) biar gampang di-copy/paste antar device
+function exportCode(){
+  try{
+    const code = btoa(unescape(encodeURIComponent(JSON.stringify(serializeState()))));
+    window.prompt('📤 SALIN kode ini, simpan/kirim ke device lain.\nBuat memuat: klik "Muat Code" lalu paste.', code);
+  }catch(e){ toast('⚠️ Gagal ekspor: '+e.message); }
+}
+
+function importCode(){
+  const code = window.prompt('📥 Paste Save Code di sini:');
+  if(!code) return;
+  try{
+    const d = JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
+    applyState(d);
+    saveGame(true);
+    toast('📥 Progres berhasil dimuat!');
+  }catch(e){ toast('⚠️ Kode tidak valid'); }
+}
+
+document.getElementById('bSave').onclick = ()=>saveGame(false);
+document.getElementById('bExport').onclick = exportCode;
+document.getElementById('bImport').onclick = importCode;
+// auto-save tiap 15 detik + saat tab ditutup/disembunyikan
+setInterval(()=>{ if(!state.gameOver) saveGame(true); }, 15000);
+window.addEventListener('beforeunload', ()=>saveGame(true));
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) saveGame(true); });
+
 // boot
-initBubbles(); updateShop(); updateHUD(); updateSelInfo(); updateProfile();
+initBubbles();
+if(loadGame()){ toast('📂 Progres dimuat otomatis'); }
+else { updateShop(); updateHUD(); updateSelInfo(); updateProfile(); }
 setInterval(()=>{ if(state.running && !state.gameOver) simStep(); }, cfg.tickMs);
 (function frame(){
   try{ render(); }catch(e){ console.error('render error (frame skipped):', e); }
