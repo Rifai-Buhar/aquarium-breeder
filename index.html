@@ -113,6 +113,13 @@
 
   <div id="stage">
     <canvas id="cv" width="192" height="128"></canvas>
+    <div id="tankbar" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <button id="tankPrev" title="Akuarium sebelumnya" style="padding:6px 14px;font-size:16px">◀️</button>
+      <span id="tankLabel" style="min-width:120px;text-align:center;font-weight:600;color:#8fd3ff">Akuarium 1 (1/1)</span>
+      <button id="tankNext" title="Akuarium berikutnya" style="padding:6px 14px;font-size:16px">▶️</button>
+      <button id="tankAdd" title="Tambah akuarium baru ($200)" style="padding:6px 12px">➕ Tank</button>
+      <button id="tankRename" title="Ganti nama akuarium" style="padding:6px 10px">✏️</button>
+    </div>
     <div id="toast"></div>
     <div id="overlay">
       <h2>KOLOS IKAN!</h2>
@@ -221,15 +228,31 @@ const SPECIES = {
   koi:      {name:'Koi',       price:120,maturity:12, fryMin:2, fryMax:3, value:160, unlock:1000, colors:['#ffca28','#ffffff','#ff7043','#212121']},
 };
 
-// ---------- state ----------
+// ---------- state: MULTI-TANK ----------
 let fishId = 0;
+function makeWater(){ return { o2:90, ammonia:3, nitrate:3, ph:7.0, temp:26, setTemp:26, lampOn:true, light:80 }; }
+function makeTank(name){
+  const t = { name: name||'Akuarium', fish:[], water:makeWater(),
+    filterLevel:0, foods:[], feedLeftover:0, fedRatio:1, bubbles:[], selected:[], profileId:null };
+  for(let i=0;i<16;i++) t.bubbles.push({x:Math.random()*192,y:Math.random()*128,r:0.5+Math.random()*1.2,s:0.2+Math.random()*0.4});
+  return t;
+}
+const tanks = [ makeTank('Akuarium 1') ];
+let activeTank = 0;
+
+// GLOBAL fields (shared antar semua akuarium): koin, hari, pakan, statistik karier
 const state = {
   coins:cfg.startCapital, day:0, tick:0, running:true, gameOver:false,
-  water:{ o2:90, ammonia:3, nitrate:3, ph:7.0, temp:26, setTemp:26, lampOn:true, light:80 },
-  filterLevel:0, food:cfg.startFood, fedRatio:1, feedLeftover:0,
-  fish:[], foods:[], selected:[], profileId:null, bubbles:[],
-  stats:{ bred:0, earned:0, sold:0 },
+  food:cfg.startFood, stats:{ bred:0, earned:0, sold:0 },
 };
+// PER-TANK fields diarahkan ke akuarium aktif → SEMUA kode lama tetap jalan tanpa diubah
+['fish','water','filterLevel','foods','feedLeftover','fedRatio','bubbles','selected','profileId'].forEach(k=>{
+  Object.defineProperty(state, k, {
+    get(){ return tanks[activeTank][k]; },
+    set(v){ tanks[activeTank][k] = v; },
+    enumerable:true, configurable:true
+  });
+});
 
 function makeFish(key,sex,age){
   age = age||0;
@@ -301,6 +324,15 @@ function simStep(){
   state.tick++;
   let dayWrapped=false;
   if(state.tick>=cfg.ticksPerDay){ state.tick=0; state.day++; dayWrapped=true; }
+  const savedActive = activeTank;
+  for(let ti=0; ti<tanks.length; ti++){ activeTank = ti; simTank(dayWrapped); }
+  activeTank = savedActive;
+  // game over hanya kalau SEMUA akuarium kosong & tak mampu beli lagi
+  const totalFish = tanks.reduce((s,t)=>s+t.fish.length,0);
+  if(totalFish===0 && state.coins < cheapestUnlocked() && state.food===0) doGameOver();
+  updateHUD(); updateSelInfo(); updateProfile();
+}
+function simTank(dayWrapped){
   const n = state.fish.length;
   const w = state.water;
 
@@ -332,7 +364,7 @@ function simStep(){
       state.selected = state.selected.filter(id=>byId(id));
       state.profileId = state.profileId!=null && byId(state.profileId) ? state.profileId : null;
       const uniq=[...new Set(dead)];
-      toast('⚠️ '+uniq.slice(0,2).join(', ')+(dead.length>2?' +'+(dead.length-2):''));
+      toast('⚠️ '+tanks[activeTank].name+': '+uniq.slice(0,2).join(', ')+(dead.length>2?' +'+(dead.length-2):''));
     }
     state.fedRatio = state.fish.length ? state.fish.reduce((s,f)=>s+f.fullness,0)/state.fish.length/100 : 1;
   }
@@ -350,9 +382,6 @@ function simStep(){
 
   // diagnose penyakit tiap tick (langsung kelihatan saat air buruk)
   for(const f of state.fish) f.sick = diagnose(f,w);
-
-  if(state.fish.length===0 && state.coins < cheapestUnlocked() && state.food===0) doGameOver();
-  updateHUD(); updateSelInfo(); updateProfile();
 }
 function giveBirth(mom){
   const sp=SPECIES[mom.species];
@@ -516,7 +545,7 @@ function updateSelInfo(){
 
 // ---------- rendering ----------
 const cv=document.getElementById('cv'); const ctx=cv.getContext('2d');
-function initBubbles(){ for(let i=0;i<16;i++) state.bubbles.push({x:Math.random()*192,y:Math.random()*128,r:0.5+Math.random()*1.2,s:0.2+Math.random()*0.4}); }
+function initBubbles(){ /* bubbles kini dibuat per-tank di makeTank() */ }
 function updateFood(){
   if(!state.running) return;
   for(const fd of state.foods){ fd.y += fd.vy; if(fd.y>120) fd.sunk=true; }
@@ -747,15 +776,13 @@ function doGameOver(){
 function reset(){
   fishId=0;
   state.coins=cfg.startCapital; state.day=0; state.tick=0; state.gameOver=false;
-  state.water={o2:90,ammonia:3,nitrate:3,ph:7.0,temp:26,setTemp:26,lampOn:true,light:80};
-  state.filterLevel=0; state.food=cfg.startFood; state.fedRatio=1; state.feedLeftover=0;
-  state.fish=[]; state.foods=[]; state.selected=[]; state.profileId=null; state.bubbles=[];
+  state.food=cfg.startFood;
   state.stats={bred:0,earned:0,sold:0};
-  document.getElementById('bLamp').textContent='💡 Lampu: ON';
+  tanks.length=0; tanks.push(makeTank('Akuarium 1')); activeTank=0;
   document.getElementById('overlay').style.display='none';
   try{ localStorage.removeItem(SAVE_KEY); }catch(e){}
   const si=document.getElementById('saveInfo'); if(si) si.textContent='';
-  updateShop(); updateHUD(); updateSelInfo(); updateProfile();
+  refreshActiveTankUI();
 }
 cv.addEventListener('click', e=>{
   if(state.gameOver) return;
@@ -801,9 +828,50 @@ window.addEventListener('keydown', e=>{
 });
 document.getElementById('restart').onclick=reset;
 
+// ---------- MULTI-TANK: switch / add / rename ----------
+const TANK_COST = 200;
+const MAX_TANKS = 8;
+function updateTankBar(){
+  const t = tanks[activeTank];
+  document.getElementById('tankLabel').textContent = t.name+' ('+(activeTank+1)+'/'+tanks.length+')';
+  document.getElementById('tankAdd').disabled = tanks.length>=MAX_TANKS;
+}
+function refreshActiveTankUI(){
+  document.getElementById('bLamp').textContent='💡 Lampu: '+(state.water.lampOn?'ON':'OFF');
+  updateTankBar(); updateShop(); updateHUD(); updateSelInfo(); updateProfile();
+}
+function switchTank(dir){
+  if(tanks.length<2) { toast('Cuma ada 1 akuarium — klik ➕ Tank dulu'); return; }
+  activeTank = (activeTank + dir + tanks.length) % tanks.length;
+  refreshActiveTankUI();
+  toast('🔄 '+tanks[activeTank].name);
+}
+function addTank(){
+  if(tanks.length>=MAX_TANKS){ flash('Maksimal '+MAX_TANKS+' akuarium'); return; }
+  if(!trySpend(TANK_COST)){ return; }
+  tanks.push(makeTank('Akuarium '+(tanks.length+1)));
+  activeTank = tanks.length-1;
+  refreshActiveTankUI();
+  toast('✅ '+tanks[activeTank].name+' dibuat! ($'+TANK_COST+')');
+}
+function renameTank(){
+  const nm = window.prompt('Nama akuarium:', tanks[activeTank].name);
+  if(nm && nm.trim()){ tanks[activeTank].name = nm.trim().slice(0,20); refreshActiveTankUI(); }
+}
+document.getElementById('tankPrev').onclick=()=>switchTank(-1);
+document.getElementById('tankNext').onclick=()=>switchTank(1);
+document.getElementById('tankAdd').onclick=addTank;
+document.getElementById('tankRename').onclick=renameTank;
+// keyboard: panah kiri/kanan buat swap akuarium
+window.addEventListener('keydown', e=>{
+  if(e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if(e.code==='ArrowLeft'){ e.preventDefault(); switchTank(-1); }
+  else if(e.code==='ArrowRight'){ e.preventDefault(); switchTank(1); }
+});
+
 // ---------- SAVE / LOAD (localStorage + export code) ----------
 const SAVE_KEY = 'aquariumBreederSave_v1';
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2;
 
 function serializeState(){
   return {
@@ -811,30 +879,49 @@ function serializeState(){
     fishId: fishId,
     coins: state.coins, day: state.day, tick: state.tick,
     gameOver: state.gameOver,
-    water: state.water,
-    filterLevel: state.filterLevel, food: state.food,
-    fedRatio: state.fedRatio, feedLeftover: state.feedLeftover,
-    fish: state.fish, stats: state.stats,
+    food: state.food, stats: state.stats,
+    activeTank: activeTank,
+    tanks: tanks.map(t=>({
+      name: t.name, fish: t.fish, water: t.water,
+      filterLevel: t.filterLevel, feedLeftover: t.feedLeftover, fedRatio: t.fedRatio,
+    })),
     savedAt: Date.now(),
   };
 }
 
+function rehydrateTank(td){
+  const t = makeTank(td.name || 'Akuarium');
+  t.water = Object.assign(makeWater(), td.water||{});
+  t.filterLevel = td.filterLevel||0;
+  t.feedLeftover = td.feedLeftover||0;
+  t.fedRatio = td.fedRatio||1;
+  t.fish = (td.fish||[]).map(f=>Object.assign(makeFish(f.species||'guppy', f.sex||'M', 0), f));
+  t.foods = []; t.selected = []; t.profileId = null;
+  return t;
+}
+
 function applyState(d){
   if(!d || typeof d!=='object') throw new Error('data kosong');
-  if(d.v!==SAVE_VERSION) throw new Error('versi simpanan beda (v'+d.v+')');
   fishId = d.fishId||0;
   state.coins = d.coins; state.day = d.day; state.tick = d.tick||0;
   state.gameOver = !!d.gameOver;
-  state.water = Object.assign({o2:90,ammonia:3,nitrate:3,ph:7,temp:26,setTemp:26,lampOn:true,light:80}, d.water||{});
-  state.filterLevel = d.filterLevel||0;
-  state.food = d.food||0; state.fedRatio = d.fedRatio||1; state.feedLeftover = d.feedLeftover||0;
-  state.fish = (d.fish||[]).map(f=>Object.assign(makeFish(f.species||'guppy', f.sex||'M', 0), f));
-  state.stats = Object.assign({bred:0,earned:0,sold:0}, d.stats||{});
-  state.foods = []; state.selected = []; state.profileId = null;
+  state.food = d.food||0; state.stats = Object.assign({bred:0,earned:0,sold:0}, d.stats||{});
+
+  tanks.length = 0;
+  if(d.v>=2 && Array.isArray(d.tanks)){
+    d.tanks.forEach(td=>tanks.push(rehydrateTank(td)));
+    activeTank = clamp(d.activeTank||0, 0, tanks.length-1);
+  } else {
+    // backward-compat: v1 save (single tank flat fields)
+    tanks.push(rehydrateTank({ name:'Akuarium 1', fish:d.fish, water:d.water,
+      filterLevel:d.filterLevel, feedLeftover:d.feedLeftover, fedRatio:d.fedRatio }));
+    activeTank = 0;
+  }
+  if(tanks.length===0){ tanks.push(makeTank('Akuarium 1')); activeTank=0; }
+
   // sinkron UI
-  document.getElementById('bLamp').textContent = state.water.lampOn ? '💡 Lampu: ON' : '💡 Lampu: OFF';
   document.getElementById('overlay').style.display = state.gameOver ? 'flex' : 'none';
-  updateShop(); updateHUD(); updateSelInfo(); updateProfile();
+  refreshActiveTankUI();
 }
 
 function saveGame(silent){
@@ -886,7 +973,7 @@ document.addEventListener('visibilitychange', ()=>{ if(document.hidden) saveGame
 // boot
 initBubbles();
 if(loadGame()){ toast('📂 Progres dimuat otomatis'); }
-else { updateShop(); updateHUD(); updateSelInfo(); updateProfile(); }
+else { refreshActiveTankUI(); }
 setInterval(()=>{ if(state.running && !state.gameOver) simStep(); }, cfg.tickMs);
 (function frame(){
   try{ render(); }catch(e){ console.error('render error (frame skipped):', e); }
