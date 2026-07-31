@@ -142,9 +142,9 @@ function updateHUD() {
   // Tank add button
   const addBtn = elements.tankAdd;
   if (addBtn) {
-    const full = tanks.length >= 8;
-    const poor = state.coins < 200;
-    addBtn.textContent = full ? '➕ Tank (MAX)' : '➕ Tank ($200)';
+    const full = tanks.length >= cfg.maxTanks;
+    const poor = state.coins < cfg.tankCost;
+    addBtn.textContent = full ? '➕ Tank (MAX)' : '➕ Tank ($' + cfg.tankCost + ')';
     addBtn.style.opacity = (full || poor) ? '0.5' : '1';
     addBtn.disabled = full;
   }
@@ -384,8 +384,8 @@ elements.idxClose.onclick = closeIndex;
 // TANK BAR UI
 // ============================================
 
-const TANK_COST = 200;
-const MAX_TANKS = 8;
+const TANK_COST = cfg.tankCost;
+const MAX_TANKS = cfg.maxTanks;
 
 function updateTankBar() {
   const t = tanks[gameRefs.activeTank];
