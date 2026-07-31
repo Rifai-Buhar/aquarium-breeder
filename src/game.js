@@ -31,6 +31,8 @@ export const cfg = {
   foodBulkOrder: 50,
   foodDecay: 0.89,
   eatGain: 20,
+  tankCost: 200,
+  maxTanks: 8,
 };
 
 // ---------- Water / Tank ----------
