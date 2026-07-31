@@ -97,6 +97,7 @@ export const state = {
   gameOver: false,
   food: cfg.startFood,
   stats: { bred: 0, earned: 0, sold: 0 },
+  achievements: {},  // key -> {unlockedAt, notified}
 };
 
 export let fishId = 0;
@@ -216,6 +217,7 @@ export function simStep() {
     state.tick = 0;
     state.day++;
     dayWrapped = true;
+    checkAchievements(); // day-based achievements
   }
 
   const savedActive = gameRefs.activeTank;
@@ -295,6 +297,7 @@ function simTank(dayWrapped) {
     }
 
     setFedRatio(fish.length ? fish.reduce((s, f) => s + f.fullness, 0) / fish.length / 100 : 1);
+    checkAchievements();
   }
 
   // Water chemistry (per tick)
@@ -342,6 +345,7 @@ export function giveBirth(mom) {
   }
 
   state.stats.bred += cnt;
+  checkAchievements();
   mom.pregnant = false;
   mom.gestate = 0;
   mom.cooldown = cfg.breedCD;
@@ -349,6 +353,59 @@ export function giveBirth(mom) {
   const dad = mom.mateId != null ? byId(mom.mateId) : null;
   if (dad) dad.cooldown = cfg.breedCD;
   mom.mateId = null;
+}
+
+// ============================================
+// ACHIEVEMENT SYSTEM
+// ============================================
+
+const ACHIEVEMENTS = {
+  firstBreed: { name: '🐣 Parent Pertama', desc: 'Berhasil memijahkan pasangan pertama', check: () => state.stats.bred >= 1 },
+  breeder10: { name: '🏡 Peternak Pemula', desc: 'Melahirkan total 10 anak ikan', check: () => state.stats.bred >= 10 },
+  breeder50: { name: '🏘️ Peternak Handal', desc: 'Melahirkan total 50 anak ikan', check: () => state.stats.bred >= 50 },
+  firstSale: { name: '💰 Penjual Pertama', desc: 'Menjual ikan pertama', check: () => state.stats.sold >= 1 },
+  rich1000: { name: '💎 Kaya Raya', desc: 'Mengumpulkan $1000 total cuan', check: () => state.stats.earned >= 1000 },
+  rich10000: { name: '💎 Miliarder Akuarium', desc: 'Mengumpulkan $10000 total cuan', check: () => state.stats.earned >= 10000 },
+  survivor30: { name: '🛡️ Survivor', desc: 'Mencapai hari ke-30 tanpa game over', check: () => state.day >= 30 },
+  survivor100: { name: '🏆 Legend', desc: 'Mencapai hari ke-100', check: () => state.day >= 100 },
+  filterMax: { name: '⚙️ Master Filter', desc: 'Mengupgrade filter ke Level 3', check: () => tanks.some(t => t.filterLevel >= 3) },
+  multiTank: { name: '🏢 Multi-Tank Owner', desc: 'Memiliki 3 akuarium sekaligus', check: () => tanks.length >= 3 },
+  koiOwner: { name: '🎋 Koi Keeper', desc: 'Memiliki ikan Koi', check: () => tanks.some(t => t.fish.some(f => f.species === 'koi')) },
+  rareColor: { name: '✨ Rare Hunter', desc: 'Mendapatkan ikan warna rare', check: () => tanks.some(t => t.fish.some(f => f.colorInfo?.isRare)) },
+};
+
+function checkAchievements() {
+  for (const [key, ach] of Object.entries(ACHIEVEMENTS)) {
+    if (!state.achievements[key] && ach.check()) {
+      state.achievements[key] = { unlockedAt: Date.now(), notified: false };
+    }
+  }
+}
+
+function notifyAchievements() {
+  for (const [key, achData] of Object.entries(state.achievements)) {
+    if (!achData.notified) {
+      const ach = ACHIEVEMENTS[key];
+      if (ach) {
+        achData.notified = true;
+        // Use setTimeout to avoid circular import with toast
+        setTimeout(() => {
+          if (typeof toast === 'function') {
+            toast('🏆 Achievement: ' + ach.name + ' — ' + ach.desc);
+          }
+        }, 100);
+      }
+    }
+  }
+}
+
+export function getAchievements() {
+  return Object.entries(ACHIEVEMENTS).map(([key, ach]) => ({
+    key,
+    ...ach,
+    unlocked: !!state.achievements[key],
+    unlockedAt: state.achievements[key]?.unlockedAt,
+  }));
 }
 
 export function cheapestUnlocked() {
@@ -381,6 +438,7 @@ export function actBuy(key, sex) {
   if (getFish().length >= cfg.capacity) { flash('Akuarium penuh'); return; }
   if (!trySpend(sp.price)) return;
   getFish().push(makeFish(key, sex, ri(1, 2)));
+  checkAchievements();
   updateShop();
   updateHUD();
 }
@@ -419,6 +477,7 @@ export function actSell() {
   state.coins += gain;
   setSelected([]);
   if (getProfileId() != null && !byId(getProfileId())) setProfileId(null);
+  checkAchievements();
   updateShop();
   updateHUD();
   updateSelInfo();
