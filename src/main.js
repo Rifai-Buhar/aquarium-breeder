@@ -2,7 +2,7 @@
 // MAIN ENTRY POINT - Aquarium Breeder
 // ============================================
 
-import { cfg, state, tanks, gameRefs, fishId, makeWater, makeTank, makeFish, byId, cheapestUnlocked, fishValue, simStep, validPair, giveBirth, toggleSelect, actBuy, actBreed, actSell, actOrder, actOrderBulk, actWater, actFilter, actLamp, actTemp, togglePause, reset, getFish, getWater, getFoods, getFeedLeftover, getFedRatio, getFilterLevel, getBubbles, getSelected, setSelected, getProfileId, setProfileId, getActiveTank } from './game.js';
+import { cfg, state, tanks, gameRefs, fishId, makeWater, makeTank, makeFish, byId, cheapestUnlocked, fishValue, simStep, validPair, giveBirth, toggleSelect, actBuy, actBreed, actSell, actOrder, actOrderBulk, actWater, actFilter, actLamp, actTemp, togglePause, reset, getFish, getWater, getFoods, getFeedLeftover, getFedRatio, getFilterLevel, getBubbles, getSelected, setSelected, getProfileId, setProfileId, getActiveTank, notifyAchievements } from './game.js';
 import { initRenderer, render } from './render.js';
 import { cacheElements, updateHUD, updateShop, updateProfile, updateSelInfo, openIndex, closeIndex, renderIndex, refreshActiveTankUI, doGameOver, elements } from './ui.js';
 import { toast, flash } from './uiUtils.js';
@@ -142,6 +142,7 @@ setInterval(() => {
   } catch (e) {
     console.error('render error (frame skipped):', e);
   }
+  notifyAchievements();
   requestAnimationFrame(frame);
 })();
 
