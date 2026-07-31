@@ -171,10 +171,23 @@ export function byId(id) {
 
 // ---------- Disease Diagnosis ----------
 function diagnose(f, w) {
+  const sp = SPECIES[f.species];
+  const prefs = sp.prefWater || {};
+  
   if (w.ammonia > 40) return { name: 'Bintik Putih (Ich)', fix: 'Turunkan ammonia: Ganti Air / Filter' };
   if (w.o2 < 25) return { name: 'Sesak Napas', fix: 'Naikkan O₂: nyalakan Lampu / Filter' };
   if (getFish().length > cfg.capacity * 0.92) return { name: 'Stress Keramaian', fix: 'Kurangi jumlah ikan (jual sebagian)' };
-  if (w.temp < 21 || w.temp > 30) return { name: 'Flu Suhu', fix: 'Set suhu 24–28°C' };
+  
+  // Temperature stress with species preference
+  const tempMin = prefs.tempMin ?? 21;
+  const tempMax = prefs.tempMax ?? 30;
+  if (w.temp < tempMin || w.temp > tempMax) return { name: 'Flu Suhu', fix: `Set suhu ${tempMin}–${tempMax}°C` };
+  
+  // pH stress with species preference
+  const phMin = prefs.phMin ?? 6.5;
+  const phMax = prefs.phMax ?? 8.0;
+  if (w.ph < phMin || w.ph > phMax) return { name: 'pH Stress', fix: `Set pH ${phMin}–${phMax}` };
+  
   if (f.fullness < 25) return { name: 'Lapar Kronis', fix: 'Berikan pakan (klik air)' };
   return null;
 }
@@ -482,7 +495,7 @@ export function reset() {
 }
 
 // Re-export for backward compat
-export { getFish as fish, getWater as water, getFilterLevel as filterLevel, getFoods as foods, getFeedLeftover as feedLeftover, getFedRatio as fedRatio, getBubbles as bubbles, getSelected as selected, getProfileId as profileId };
+export { getFish as fish, getWater as water, getFilterLevel as filterLevel, getFoods as foods, getFeedLeftover as feedLeftover, getFedRatio as fedRatio, getBubbles as bubbles, getSelected as selected, getProfileId as profileId, byId };
 
 // These will be set by main.js after UI loads
 export let updateHUD = () => {};
