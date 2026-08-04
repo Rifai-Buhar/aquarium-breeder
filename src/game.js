@@ -33,6 +33,12 @@ export const cfg = {
   eatGain: 20,
   tankCost: 200,
   maxTanks: 8,
+  // Auto-feeder config
+  feederCost: [0, 500, 1500, 3000], // level 1,2,3 cost
+  feederInterval: [0, 8, 5, 3], // ticks per auto-feed (level 1: 8 ticks = 1.5hr, level 3: 3 ticks = 35min)
+  feederAmount: [0, 1, 2, 3], // pakan per feed
+  // Quest config
+  questRefreshHour: 6, // 06:00 reset
 };
 
 // ---------- Water / Tank ----------
@@ -61,6 +67,9 @@ export function makeTank(name) {
     bubbles: [],
     selected: [],
     profileId: null,
+    // Auto-feeder per tank
+    feederLevel: 0,
+    feederCooldown: 0,
   };
   for (let i = 0; i < 16; i++) {
     t.bubbles.push({
@@ -98,6 +107,10 @@ export const state = {
   food: cfg.startFood,
   stats: { bred: 0, earned: 0, sold: 0 },
   achievements: {},  // key -> {unlockedAt, notified}
+  // Quest system
+  quests: [],
+  questRerollCost: 100,
+  lastQuestRefresh: 0,
 };
 
 export let fishId = 0;
@@ -218,6 +231,12 @@ export function simStep() {
     state.day++;
     dayWrapped = true;
     checkAchievements(); // day-based achievements
+    
+    // Daily quest refresh at 06:00 (simulated at day wrap)
+    const now = new Date();
+    if (now.getHours() >= cfg.questRefreshHour) {
+      refreshQuests();
+    }
   }
 
   const savedActive = gameRefs.activeTank;
@@ -226,6 +245,12 @@ export function simStep() {
     simTank(dayWrapped);
   }
   gameRefs.activeTank = savedActive;
+
+  // Process auto-feeders for all tanks
+  processFeeders();
+
+  // Check quest progress
+  checkQuests();
 
   // Game over only if ALL tanks empty & can't afford cheapest fish
   const totalFish = tanks.reduce((s, t) => s + t.fish.length, 0);
@@ -502,6 +527,142 @@ export function actFilter() {
   flash('⚙️ Filter ' + (lv === 1 ? 'terpasang' : 'di-upgrade ke Lv.' + lv) + ' — ammonia makin lambat naik');
   updateHUD();
 }
+
+// ============================================
+// AUTO-FEEDER SYSTEM (per tank)
+// ============================================
+export function getFeederLevel() { return getActiveTankObj().feederLevel; }
+export function setFeederLevel(v) { getActiveTankObj().feederLevel = v; }
+export function getFeederCooldown() { return getActiveTankObj().feederCooldown; }
+export function setFeederCooldown(v) { getActiveTankObj().feederCooldown = v; }
+
+export function actBuyFeeder() {
+  const current = getFeederLevel();
+  if (current >= 3) { flash('Feeder sudah Level 3 (max)!'); return; }
+  const cost = cfg.feederCost[current + 1];
+  if (!trySpend(cost)) return;
+  setFeederLevel(current + 1);
+  setFeederCooldown(cfg.feederInterval[current + 1]);
+  toast('🤖 Auto-feeder Level ' + (current + 1) + ' terpasang! (−$' + cost + ')');
+  updateHUD();
+}
+
+function processFeeders() {
+  for (const tank of tanks) {
+    if (tank.feederLevel > 0 && state.food > 0) {
+      tank.feederCooldown--;
+      if (tank.feederCooldown <= 0) {
+        const amount = Math.min(cfg.feederAmount[tank.feederLevel], state.food, tank.fish.length);
+        if (amount > 0) {
+          state.food -= amount;
+          // Distribute food to random fish positions
+          for (let i = 0; i < amount; i++) {
+            if (tank.fish.length === 0) break;
+            const f = tank.fish[Math.floor(Math.random() * tank.fish.length)];
+            tank.foods.push({
+              x: f.x + Math.random() * 20 - 10,
+              y: f.y + Math.random() * 15 - 5,
+              vy: 0.3 + Math.random() * 0.2,
+              eaten: false,
+              sunk: false,
+            });
+          }
+          tank.feederCooldown = cfg.feederInterval[tank.feederLevel];
+        }
+      }
+    }
+  }
+}
+
+// ============================================
+// DAILY QUEST SYSTEM
+// ============================================
+
+const QUEST_TEMPLATES = [
+  { type: 'sell', name: '💰 Penjual', desc: 'Jual {n} ikan', target: 'sold', reward: 50, weights: [1,2,3,5] },
+  { type: 'breed', name: '🐣 Peternak', desc: 'Pijahkan {n} pasangan', target: 'bred', reward: 80, weights: [1,1,2,3] },
+  { type: 'feed', name: '🍽️ Pemberi Makan', desc: 'Beri makan {n}x', target: 'feed', reward: 30, weights: [2,3,5,5] },
+  { type: 'earn', name: '💰 Penghasil', desc: 'Dapatkan ${n} cuan', target: 'earned', reward: 100, weights: [1,2,3] },
+  { type: 'buy', name: '🛒 Pembeli', desc: 'Beli {n} ikan', target: 'buy', reward: 40, weights: [1,2] },
+  { type: 'water', name: '💧 Perawat Air', desc: 'Ganti air {n}x', target: 'water', reward: 60, weights: [1] },
+  { type: 'filter', name: '⚙️ Teknisi', desc: 'Upgrade filter {n}x', target: 'filter', reward: 150, weights: [1] },
+];
+
+function generateQuest() {
+  const t = QUEST_TEMPLATES[Math.floor(Math.random() * QUEST_TEMPLATES.length)];
+  const n = t.weights[Math.floor(Math.random() * t.weights.length)];
+  return {
+    id: Date.now() + Math.random(),
+    type: t.type,
+    name: t.name,
+    desc: t.desc.replace('{n}', n),
+    target: t.target,
+    targetCount: n,
+    progress: 0,
+    reward: t.reward * n,
+    completed: false,
+    claimed: false,
+  };
+}
+
+function refreshQuests() {
+  state.quests = [];
+  for (let i = 0; i < 3; i++) state.quests.push(generateQuest());
+  state.lastQuestRefresh = Date.now();
+}
+
+export function getQuests() { return state.quests; }
+
+export function checkQuests() {
+  for (const q of state.quests) {
+    if (q.completed) continue;
+    let prog = 0;
+    switch (q.target) {
+      case 'sold': prog = state.stats.sold; break;
+      case 'bred': prog = state.stats.bred; break;
+      case 'feed': prog = state.feedCount || 0; break;
+      case 'earned': prog = state.stats.earned; break;
+      case 'buy': prog = state.buyCount || 0; break;
+      case 'water': prog = state.waterChangeCount || 0; break;
+      case 'filter': prog = state.filterUpgradeCount || 0; break;
+    }
+    q.progress = Math.min(prog, q.targetCount);
+    if (q.progress >= q.targetCount && !q.completed) {
+      q.completed = true;
+      toast('🎯 Quest selesai: ' + q.desc + ' — Klaim hadiah $' + q.reward + '!');
+    }
+  }
+}
+
+export function claimQuest(qid) {
+  const q = state.quests.find(x => x.id === qid);
+  if (q && q.completed && !q.claimed) {
+    q.claimed = true;
+    state.coins += q.reward;
+    toast('🎁 Klaim quest: +$' + q.reward);
+    updateHUD();
+  }
+}
+
+export function rerollQuest(qid) {
+  const idx = state.quests.findIndex(x => x.id === qid);
+  if (idx >= 0 && !state.quests[idx].completed && state.coins >= state.questRerollCost) {
+    state.coins -= state.questRerollCost;
+    state.quests[idx] = generateQuest();
+    toast('🔄 Quest di-reroll! (−$' + state.questRerollCost + ')');
+    updateHUD();
+  }
+}
+
+export function actWater() { 
+  if (!trySpend(10)) return; 
+  const w = getWater(); 
+  w.ammonia *= 0.3; 
+  w.nitrate *= 0.3; 
+  w.ph = 7.0; 
+  state.waterChangeCount = (state.waterChangeCount || 0) + 1;
+  checkQuests();
+}
 export function actLamp() {
   const w = getWater();
   w.lampOn = !w.lampOn;
@@ -543,6 +704,14 @@ export function reset() {
   state.gameOver = false;
   state.food = cfg.startFood;
   state.stats = { bred: 0, earned: 0, sold: 0 };
+  state.achievements = {};
+  state.quests = [];
+  state.questRerollCost = 100;
+  state.lastQuestRefresh = 0;
+  state.feedCount = 0;
+  state.buyCount = 0;
+  state.waterChangeCount = 0;
+  state.filterUpgradeCount = 0;
   
   tanks.length = 0;
   tanks.push(makeTank('Akuarium 1'));
