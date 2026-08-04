@@ -3,7 +3,7 @@
 // ============================================
 
 import { SPECIES, getTraitDisplay, getColorDisplayName, getEffectiveMaturity, getEffectiveFryCount, createTraits, determineColor } from './species.js';
-import { cfg, state, tanks, gameRefs, fishId, byId, cheapestUnlocked, fishValue, validPair, getAchievements } from './game.js';
+import { cfg, state, tanks, gameRefs, fishId, byId, cheapestUnlocked, fishValue, validPair, getAchievements, getQuests, claimQuest, rerollQuest, getFeederLevel, getFeederCooldown, actBuyFeeder } from './game.js';
 import { FISH_SPRITE, shade } from './sprites.js';
 
 // DOM Elements cache
@@ -140,6 +140,13 @@ function updateHUD() {
   else if (getFilterLevel() >= 1) elements.bFilter.textContent = '⚙️ Upgrade Filter →Lv.' + (getFilterLevel() + 1) + ' ($100)';
   else elements.bFilter.textContent = '⚙️ Filter ($100)';
 
+  // Auto-feeder display
+  const fl = getFeederLevel();
+  if (fl > 0) {
+    const cd = getFeederCooldown();
+    elements.bFilter.textContent += ' | 🤖 Feeder Lv.' + fl + ' (' + cd + 't)';
+  }
+
   // Tank add button
   const addBtn = elements.tankAdd;
   if (addBtn) {
@@ -206,10 +213,144 @@ function updateProfile() {
   elements.pFull.textContent = Math.round(f.fullness) + '%';
   elements.pFullb.style.width = clamp(f.fullness, 0, 100) + '%';
 
-  // Transfer button (if multiple tanks)
-  let transferHtml = '';
-  if (tanks.length > 1) {
-    transferHtml = '<div style="margin-top:8px"><button id="btnTransfer" style="width:100%;padding:6px;background:#16405c;border:1px solid #2a6b92;border-radius:4px;color:#dff;font-family:inherit;font-size:11px;cursor:pointer">🔄 Pindah Tank</button></div>';
+  // ============================================
+  // ACHIEVEMENT PANEL
+  // ============================================
+  function openAchievements() {
+    const achievements = getAchievements();
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(4,10,18,0.95);display:flex;align-items:center;justify-content:center;z-index:100;overflow:auto;';
+    modal.innerHTML = `
+      <div style="background:#112233;border:2px solid #1d4a6b;border-radius:6px;padding:20px;min-width:320px;max-width:90vw;max-height:80vh;overflow:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin:0;color:#39c">🏆 Pencapaian</h3>
+          <button id="closeAchievements" style="background:#ff6b6b;border:none;border-radius:4px;color:#fff;padding:6px 12px;font-family:inherit;cursor:pointer">✖️ Tutup</button>
+        </div>
+        <div id="achievementList" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  
+    const list = modal.querySelector('#achievementList');
+    achievements.forEach(ach => {
+      const item = document.createElement('div');
+      item.style.cssText = 'padding:12px;background:#0a1d2c;border:1px solid ' + (ach.unlocked ? '#39c' : '#234') + ';border-radius:4px;display:flex;align-items:flex-start;gap:10px;opacity:' + (ach.unlocked ? '1' : '0.5');
+      item.innerHTML = `
+        <span style="font-size:24px;flex:0 0 40px">${ach.unlocked ? '✅' : '🔒'}</span>
+        <div style="flex:1">
+          <div style="font-weight:bold;color:${ach.unlocked ? '#39c' : '#8fd3ff'">${ach.name}</div>
+          <div style="font-size:11px;opacity:0.8;margin-top:2px">${ach.desc}</div>
+          ${ach.unlocked && ach.unlockedAt ? '<div style="font-size:10px;opacity:0.6;margin-top:4px">Terbuka: ' + new Date(ach.unlockedAt).toLocaleDateString('id-ID') + '</div>' : ''}
+        </div>
+      `;
+      list.appendChild(item);
+    });
+  
+    modal.querySelector('#closeAchievements').onclick = () => document.body.removeChild(modal);
+    modal.onclick = (e) => { if (e.target === modal) document.body.removeChild(modal); };
+  }
+
+  function openQuests() {
+    const quests = getQuests();
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(4,10,18,0.95);display:flex;align-items:center;justify-content:center;z-index:100;overflow:auto;';
+    modal.innerHTML = `
+      <div style="background:#112233;border:2px solid #1d4a6b;border-radius:6px;padding:20px;min-width:320px;max-width:90vw;max-height:80vh;overflow:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin:0;color:#39c">🎯 Pencapaian Harian</h3>
+          <button id="closeQuest" style="background:#ff6b6b;border:none;border-radius:4px;color:#fff;padding:6px 12px;font-family:inherit;cursor:pointer">✖️ Tutup</button>
+        </div>
+        <div id="questList" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  
+    const list = modal.querySelector('#questList');
+    quests.forEach(quest => {
+      const item = document.createElement('div');
+      item.style.cssText = 'padding:12px;background:#0a1d2c;border:1px solid ' + (quest.unlocked ? '#39c' : '#234') + ';border-radius:4px;display:flex;align-items:flex-start;gap:10px;opacity:' + (quest.unlocked ? '1' : '0.5');
+      item.innerHTML = `
+        <span style="font-size:24px;flex:0 0 40px">${quest.unlocked ? '✅' : '🔒'}</span>
+        <div style="flex:1">
+          <div style="font-weight:bold;color:${ach.unlocked ? '#39c' : '#8fd3ff'">${quest.name}</div>
+          <div style="font-size:11px;opacity:0.8;margin-top:2px">${q.desc}</div>
+          ${quest.unlocked && quest.unlockedAt ? '<div style="font-size:10px;opacity:0.6;margin-top:4px">Terbuka: ' + new Date(ach.unlockedAt).toLocaleDateString('id-ID') + '</div>' : ''}
+          ${q.completed ? '<div style="font-size:10px;opacity:0.6;margin-top:4px">✓ Completed</div>' : ''}
+        </div>
+      `;
+      list.appendChild(item);
+    });
+  
+    modal.querySelector('#closeQuest').onclick = () => document.body.removeChild(modal);
+    modal.onclick = (e) => { if (e.target === modal) document.body.removeChild(modal); };
+  }
+
+  function openTransferModal(fishId) {
+    const fish = byId(fishId);
+    if (!fish) return;
+  
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(4,10,18,0.95);display:flex;align-items:center;justify-content:center;z-index:100;overflow:auto;';
+    modal.innerHTML = `
+      <div style="background:#112233;border:2px solid #1d4a6b;border-radius:6px;padding:20px;min-width:320px;max-width:90vw;max-height:80vh;overflow:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin:0;color:#39c">🔄 Pindah Ikan</h3>
+          <button id="closeTransfer" style="background:#ff6b6b;border:none;border-radius:4px;color:#fff;padding:6px 12px;font-family:inherit;cursor:pointer">✖️ Tutup</button>
+        </div>
+        <div id="tankList" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  
+    const list = modal.querySelector('#tankList');
+    tanks.forEach((tank, idx) => {
+      const isActive = ti === gameRefs.activeTank;
+      const item = document.createElement('div');
+      item.style.cssText = 'padding:12px;background:#0a1d2c;border:1px solid ' + (isActive ? '#39c' : '#234') + ';border-radius:4px;display:flex;align-items:center;gap:10px;opacity:' + (isActive ? '1' : '0.5');
+      item.innerHTML = `
+        <span style="font-weight:bold">${tank.name} (${tanks.length}/${tanks.length})</span>
+        <span style="flex:1">${tank.fish.length} ikan</span>
+        <span style="font-size:12px;color:${isActive ? '#39c' : '#8fd3ff'}>${isActive ? 'Aktif' : 'Pasif'}</span>
+      `;
+      list.appendChild(item);
+    });
+  
+    modal.querySelector('#closeTransfer').onclick = () => document.body.removeChild(modal);
+    modal.onclick = (e) => { if (e.target === modal) document.body.removeChild(modal); };
+    document.getElementById('btnTransfer').onclick = () => {
+      const selected = getSelected();
+      if (selected.length === 0) {
+        toast('Pilih ikan dulu');
+        return;
+      }
+      openTransferModal(selected[0]);
+    };
+  
+  // Breeding preview (if 2 valid parents selected)
+  let breedingHtml = '';
+  const fish = getFish();
+  const sp = SPECIES[f.species];
+  const maturity = getEffectiveMaturity(f.species, f.traits);
+  if (fish.length >= 2) {
+    // Find selected pair
+    const sel = getSelected();
+    if (sel.length === 2) {
+      const a = byId(sel[0]), b = byId(sel[1]);
+      if (a && b && validPair(a, b)) {
+        const fryRange = getEffectiveFryCount(f.species, f.traits);
+        const dad = a.sex === 'M' ? a : b;
+        const mom = a.sex === 'F' ? a : b;
+        const dadTraits = determineColor(dad.species, dad.traits);
+        const momTraits = determineColor(mom.species, mom.traits);
+        const childColor = determineColor(mom.species, { ...mom.traits, ...dad.traits });
+        breedingHtml = '<div style="margin-top:8px;padding:8px;background:#0f3460;border:1px solid #2a6b92;border-radius:4px"><div style="font-size:10px;opacity:0.8">🔮 Prediksi Anak:</div>'
+          + '<div style="font-size:11px;margin-top:2px">'
+          + 'Warna: <b>' + getColorDisplayName(childColor) + '</b><br>'
+          + 'Jumlah: <b>' + fryRange.min + '-' + fryRange.max + '</b><br>'
+          + 'Trait: ' + getTraitDisplay({ ...mom.traits, ...dad.traits })
+          + '</div></div>';
+      }
+    }
   }
 
   // Show traits if any
